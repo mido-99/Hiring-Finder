@@ -1,0 +1,16 @@
+name,github,api,website
+bluesky-social,https://github.com/bluesky-social?q=&type=all&language=typescript&sort=stargazers,https://api.github.com/users/bluesky-social,
+langchain-ai,https://github.com/langchain-ai?q=&type=all&language=typescript&sort=stargazers,https://api.github.com/users/langchain-ai,https://www.langchain.com
+TanStack,https://github.com/TanStack?q=&type=all&language=typescript&sort=stargazers,https://api.github.com/users/TanStack,https://TanStack.com
+unjs,https://github.com/unjs?q=&type=all&language=typescript&sort=stargazers,https://api.github.com/users/unjs,https://unjs.io
+denoland,https://github.com/denoland?q=&type=all&language=typescript&sort=stargazers,https://api.github.com/users/denoland,https://deno.land
+berachain,https://github.com/berachain?q=&type=all&language=typescript&sort=stargazers,https://api.github.com/users/berachain,berachain.com
+prisma,https://github.com/prisma?q=&type=all&language=typescript&sort=stargazers,https://api.github.com/users/prisma,https://www.prisma.io
+radix-ui,https://github.com/radix-ui?q=&type=all&language=typescript&sort=stargazers,https://api.github.com/users/radix-ui,radix-ui.com
+nestjs,https://github.com/nestjs?q=&type=all&language=typescript&sort=stargazers,https://api.github.com/users/nestjs,https://nestjs.com/
+total-typescript,https://github.com/total-typescript?q=&type=all&language=typescript&sort=stargazers,https://api.github.com/users/total-typescript,https://totaltypescript.com
+worldcoin,https://github.com/worldcoin?q=&type=all&language=typescript&sort=stargazers,https://api.github.com/users/worldcoin,https://www.worldcoin.org
+nomic-ai,https://github.com/nomic-ai?q=&type=all&language=typescript&sort=stargazers,https://api.github.com/users/nomic-ai,
+SimplifyJobs,https://github.com/SimplifyJobs?q=&type=all&language=typescript&sort=stargazers,https://api.github.com/users/SimplifyJobs,https://simplify.jobs/
+Orbiter-Finance,https://github.com/Orbiter-Finance?q=&type=all&language=typescript&sort=stargazers,https://api.github.com/users/Orbiter-Finance,www.orbiter.finance
+BuilderIO,https://github.com/BuilderIO?q=&type=all&language=typescript&sort=stargazers,https://api.github.com/users/BuilderIO,https://builder.io

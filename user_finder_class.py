@@ -1,4 +1,6 @@
 import requests
+import httpx
+import asyncio
 from dotenv import get_variable
 from time import sleep
 import pandas as pd
@@ -10,11 +12,9 @@ class OrgFinder:
         self.token = token
         self.set_headers()
 
-    def hire(self, min_followers=100, max_followers=5000, languages: list=None, per_page=100, start_page=1, max_pages=1, csv_name: str='file.csv'):
+    def hire(self, languages: list=None, per_page=100, start_page=1, last_page=1, csv_name: str='file.csv'):
         """Search github organizations' profiles by specific criteria \n
         Parameters:
-        - Param min_followers(int - def: 100): minimum numbers of followers for organization to include
-        - Param max_followers(int - def: 5000): maximum numbers of followers for organization to include
         - Param languages(list[str]): main language used by that user
         - Param per_page(int - def: 100): number of results per search (def: 30, max: 100)
         - Param start_page(int - def: 1): page number to start from (used if you stopped last time in a certain page)
@@ -29,7 +29,7 @@ class OrgFinder:
         Read more at: https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api?apiVersion=2022-11-28#checking-the-status-of-your-rate-limit
         """
 
-        self.search_organizations_by_criteria(min_followers, max_followers, languages, per_page, start_page, max_pages)
+        self.search_organizations_by_criteria(languages, per_page, start_page, last_page)
         self.populate_table()
         self.export_csv(csv_name)
         
@@ -41,13 +41,13 @@ class OrgFinder:
         if self.token:
             self.headers["Authorization"] = f"token {self.token}"
 
-    def search_organizations_by_criteria(self, min_followers=100, max_followers=5000, languages: list=None, per_page=100, start_page=1, max_pages=1):
+    def search_organizations_by_criteria(self, languages: list=None, per_page=100, start_page=1, last_page=1):
 
         self.organizations = []
         base_url = "https://api.github.com/search/users"
         for language in languages:
-            query = f"type:org followers:{min_followers}..{max_followers} language:{language}"
-            for page in range(start_page, start_page+max_pages):
+            query = f"type:org language:{language}"
+            for page in range(start_page, last_page+1):
                 params = {
                     'q': query,
                     'per_page': per_page,
@@ -66,26 +66,37 @@ class OrgFinder:
                 else:
                     print(f"Error in request to page: {page}: {response.status_code} - {response.json()}")
     
-    def populate_table(self):
+    async def populate_table(self):
         
         df = pd.DataFrame(self.organizations)
-        self.process_df(df=df)
+        await self.process_df(df=df)
         
-    def process_df(self, df):
+    async def process_df(self, df):
         # Select wanted fields only
-        self.new_df = df[['login', 'html_url', 'url']]
+        self.new_df = df[['login', 'html_url', 'url']].copy()
         # Rename to relevant names
         self.new_df.rename(columns={'login': 'name', 'html_url': 'github', 'url': 'api'}, inplace=True)
         # Add website in blog 
-        self.new_df['website'] = self.new_df['api'].apply(lambda x: self.get_website(x))
+        self.new_df['website'] = await self.async_fetch_site(self.new_df['api'].to_list())
         # Prepare direct github link to wanted repos
         self.new_df['github'] = self.new_df['github'].apply(lambda x: self.prepare_repos_page(x))
-
-    def get_website(self, api):
         
-        resp = requests.get(api, headers=self.headers).json()
-        site = resp['blog']
-        return site
+    async def async_fetch_site(self, apis: list):
+        
+        async with httpx.AsyncClient(headers=self.headers) as client:
+            tasks = [self.get_website(client, api) for api in apis]
+            websites = await asyncio.gather(*tasks)
+        return websites
+
+    async def get_website(self, client, api):
+        
+        resp = await client.get(api)
+        if resp.status_code == 200:
+            data = resp.json()
+            return data.get('blog', [])
+        else:
+            print(f"Eroor fetching blog site with {api}")
+            return ""
         
     def prepare_repos_page(self, url):
         query = "?q=&type=all&language=typescript&sort=stargazers"
@@ -98,12 +109,10 @@ class OrgFinder:
 if __name__ == "__main__":
     TOKEN = get_variable('.env', 'GITHUB_TOKEN')
     languages = ['typescript']
-    min_followers = 100
-    max_followers = 5000
     per_page = 100
-    start_page = 1
-    max_pages = 1
+    start_page = 2
+    last_page = 3
 
     hiring = OrgFinder(token=TOKEN)
-    hiring.hire(min_followers=min_followers, max_followers=max_followers, languages=languages,
-                per_page=per_page, start_page=start_page, max_pages=max_pages, csv_name='orgs3.csv')
+    hiring.hire(languages=languages, per_page=per_page, 
+                start_page=start_page, last_page=last_page, csv_name='orgs_2_5.csv')

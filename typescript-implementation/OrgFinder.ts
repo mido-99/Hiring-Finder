@@ -1,15 +1,18 @@
 import axios from 'axios';
 import { createReadStream, promises as fs } from 'fs';
 import * as createCsvWriter from 'csv-writer';
-import * as createCsvReader from 'csv-parser';
+import createCsvReader from 'csv-parser';
 import * as path from 'path';
 
+const STATE_FILE_PATH = 'state.json';
+const ORGANIZATION_LIST_PATH = 'organizations_list.csv';
+const REPOS_PER_PAGE = 100;
 export class OrgFinder {
     private token: string | undefined;
     private headers: any;
     private organizations: any[];
     private newDf: any[];
-    private stateFilePath: string;
+    private state: { [topic: string]: any } = {};
 
     constructor() {
         this.token = process.env.GITHUB_TOKEN;
@@ -19,68 +22,91 @@ export class OrgFinder {
         }
         this.organizations = [];
         this.newDf = [];
-        this.stateFilePath = path.resolve(__dirname, 'state.json');
+        this.state = this.loadState()
     }
 
-    async append(topic: string, pagesCount: number = 5, csvName: string = 'organizations_list.csv') {
-        const state = await this.loadState();
-        const startPage = state.startPage || 1;
-        const lastPage = state.lastPage || 1;
+    async append(topic: string) {
+        let startPage = this.state[topic].lastPageChecked + 1;
 
-        await this.searchOrganizationsByCriteria(topic, startPage, lastPage);
-        await this.populateTable();
-        await this.exportCsv(csvName);
-        await this.saveState(topic, lastPage);
-    }
-
-    private async loadState() {
-        try {
-            const data = await fs.readFile(this.stateFilePath, 'utf-8');
-            return JSON.parse(data);
-        } catch (error) {
-            console.error('Error loading state file:', error);
-            return { startPage: 1, lastPage: 1, topic: "" };
+        while (true) {
+            await this.searchOrganizationsByCriteria(topic, startPage);
+            await this.populateTable();
+            await this.exportCsv();
+            this.updateState(topic, { lastPageChecked: startPage });
+            await this.saveState();
+            startPage++;
         }
     }
 
-    private async saveState(topic: string, lastPage: number) {
-        const state = { topic, lastPage };
-        await fs.writeFile(this.stateFilePath, JSON.stringify(state, null, 2));
+    private async loadState() {
+        const now = new Date();
+        const localTime = new Date(now.getTime() + (3 * 60 * 60 * 1000));
+        const formattedDate = localTime.toISOString().slice(0, 16);
+
+        const defaultState = {
+            lastPageChecked: 0,
+            firstSearchDate: formattedDate,
+            lastUpdated: formattedDate,
+        };
+
+        try {
+            const data = await fs.readFile(STATE_FILE_PATH, 'utf-8');
+            const json = JSON.parse(data);
+            return json || {};
+        } catch (error) {
+            console.error(`Error loading state file":`, error);
+            return defaultState;
+        }
     }
 
-    private async searchOrganizationsByCriteria(topic: string, startPage: number, lastPage: number) {
+    private updateState(topic: string, updates: Partial<{ lastPageChecked: number, lastUpdated: string }>) {
+        const now = new Date().toISOString().slice(0, 16);
+        this.state[topic] = {
+            ...this.state[topic],
+            ...updates,
+            lastUpdated: now,
+        };
+    }
+
+    private async saveState() {
+        try {
+            await fs.writeFile(STATE_FILE_PATH, JSON.stringify(this.state, null, 2), 'utf-8');
+        } catch (error) {
+            console.error('Error saving state file:', error);
+        }
+    }
+
+    private async searchOrganizationsByCriteria(topic: string, page: number) {
         const baseUrl = 'https://api.github.com/search/repositories';
         const existingOrgs = await this.loadExistingOrganizations();
 
-        for (let page = startPage; page <= lastPage; page++) {
-            const params = {
-                q: `topic:${topic}`,
-                per_page: 100,
-                page: page,
-            };
+        const params = {
+            q: `topic:${topic}`,
+            per_page: REPOS_PER_PAGE,
+            page: page,
+        };
 
-            await new Promise(resolve => setTimeout(resolve, 1000));
+        await new Promise(resolve => setTimeout(resolve, 1000));
 
-            try {
-                const response = await axios.get(baseUrl, { headers: this.headers, params: params });
-                if (response.status === 200) {
-                    const data = response.data;
-                    const newOrgs = data.items.map((item: any) => item.owner).filter((owner: any) => !existingOrgs.includes(owner.login));
-                    this.organizations.push(...newOrgs);
-                    console.log(`Found total of ${data.total_count} repositories for topic ${topic}`);
-                } else {
-                    console.error(`Error in request to page: ${page}: ${response.status} - ${response.data}`);
-                }
-            } catch (error) {
-                console.error(`Error in request to page: ${page}: ${error}`);
+        try {
+            const response = await axios.get(baseUrl, { headers: this.headers, params: params });
+            if (response.status === 200) {
+                const data = response.data;
+                const newOrgs = data.items.map((item: any) => item.owner).filter((owner: any) => !existingOrgs.includes(owner.login));
+                this.organizations.push(...newOrgs);
+                console.log(`Found total of ${data.total_count} repositories for topic ${topic}`);
+            } else {
+                console.error(`Error in request to page: ${page}: ${response.status} - ${response.data}`);
             }
+        } catch (error) {
+            console.error(`Error in request to page: ${page}: ${error}`);
         }
     }
 
     private async loadExistingOrganizations(): Promise<string[]> {
         const orgs: string[] = [];
         try {
-            const csvFilePath = path.resolve(__dirname, 'file.csv');
+            const csvFilePath = path.resolve(__dirname, ORGANIZATION_LIST_PATH);
             await new Promise((resolve, reject) => {
                 createReadStream(csvFilePath)
                     .pipe(createCsvReader())
@@ -95,13 +121,13 @@ export class OrgFinder {
     }
 
     private async populateTable() {
-        const df = this.organizations;
-        await this.processDf(df);
+        const currentOrganizations = this.organizations;
+        await this.processCurrentOrganizations(currentOrganizations);
     }
 
-    private async processDf(df: any[]) {
+    private async processCurrentOrganizations(currentOrganizations: any[]) {
         const now = new Date().toISOString();
-        this.newDf = df.map(item => ({
+        this.newDf = currentOrganizations.map(item => ({
             name: item.login,
             github: this.prepareReposPage(item.html_url),
             api: item.url,
@@ -145,9 +171,9 @@ export class OrgFinder {
         return url + query;
     }
 
-    private async exportCsv(csvName: string) {
+    private async exportCsv() {
         const csvWriter = createCsvWriter.createObjectCsvWriter({
-            path: csvName,
+            path: ORGANIZATION_LIST_PATH,
             header: [
                 { id: 'name', title: 'name' },
                 { id: 'github', title: 'github search' },
@@ -165,6 +191,6 @@ export class OrgFinder {
         });
 
         await csvWriter.writeRecords(this.newDf);
-        console.log(`CSV file ${csvName} written successfully.`);
+        console.log(`CSV file ${ORGANIZATION_LIST_PATH} written successfully.`);
     }
 }

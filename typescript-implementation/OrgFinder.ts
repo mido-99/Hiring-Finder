@@ -22,11 +22,14 @@ export class OrgFinder {
         }
         this.organizations = [];
         this.newDf = [];
-        this.state = this.loadState()
+        this.loadState().then(state => {
+            this.state = state
+        })
     }
 
     async append(topic: string) {
-        let startPage = this.state[topic].lastPageChecked + 1;
+        const topicState = await this.getTopicState(topic);
+        let startPage = topicState.lastPageChecked + 1;
 
         while (true) {
             await this.searchOrganizationsByCriteria(topic, startPage);
@@ -38,24 +41,36 @@ export class OrgFinder {
         }
     }
 
+    private async getTopicState(topic: string) {
+        const topicState = this.state[topic];
+
+        if (!topicState) {
+            console.log(`First time searching for ${topic}`)
+            const now = new Date();
+            const localTime = new Date(now.getTime() + (3 * 60 * 60 * 1000));
+            const formattedDate = localTime.toISOString().slice(0, 16);
+
+            const defaultState = {
+                lastPageChecked: 0,
+                firstSearchDate: formattedDate,
+                lastUpdated: formattedDate,
+            };
+
+            this.state[topic] = defaultState;
+            await this.saveState();
+        }
+
+        return this.state[topic];
+    }
+
     private async loadState() {
-        const now = new Date();
-        const localTime = new Date(now.getTime() + (3 * 60 * 60 * 1000));
-        const formattedDate = localTime.toISOString().slice(0, 16);
-
-        const defaultState = {
-            lastPageChecked: 0,
-            firstSearchDate: formattedDate,
-            lastUpdated: formattedDate,
-        };
-
         try {
             const data = await fs.readFile(STATE_FILE_PATH, 'utf-8');
             const json = JSON.parse(data);
             return json || {};
         } catch (error) {
             console.error(`Error loading state file":`, error);
-            return defaultState;
+            return {};
         }
     }
 

@@ -1,8 +1,9 @@
 import axios from 'axios';
-import { createReadStream, promises as fs } from 'fs';
+import { createReadStream, existsSync, promises as fs } from 'fs';
 import * as createCsvWriter from 'csv-writer';
 import createCsvReader from 'csv-parser';
 import * as path from 'path';
+import { writeFile } from 'fs/promises';
 
 const STATE_FILE_PATH = 'state.json';
 const ORGANIZATION_LIST_PATH = 'organizations_list.csv';
@@ -22,12 +23,10 @@ export class OrgFinder {
         }
         this.organizations = [];
         this.newDf = [];
-        this.loadState().then(state => {
-            this.state = state
-        })
     }
 
     async append(topic: string) {
+        this.state = await this.loadState()
         const topicState = await this.getTopicState(topic);
         let startPage = topicState.lastPageChecked + 1;
 
@@ -66,8 +65,7 @@ export class OrgFinder {
     private async loadState() {
         try {
             const data = await fs.readFile(STATE_FILE_PATH, 'utf-8');
-            const json = JSON.parse(data);
-            return json || {};
+            return JSON.parse(data);
         } catch (error) {
             console.error(`Error loading state file":`, error);
             return {};
@@ -107,7 +105,7 @@ export class OrgFinder {
             const response = await axios.get(baseUrl, { headers: this.headers, params: params });
             if (response.status === 200) {
                 const data = response.data;
-                const newOrgs = data.items.map((item: any) => item.owner).filter((owner: any) => !existingOrgs.includes(owner.login));
+                const newOrgs = this.filterNewOrganizationList(data, existingOrgs);
                 this.organizations.push(...newOrgs);
                 console.log(`Found total of ${data.total_count} repositories for topic ${topic}`);
             } else {
@@ -118,20 +116,46 @@ export class OrgFinder {
         }
     }
 
-    private async loadExistingOrganizations(): Promise<string[]> {
+    private filterNewOrganizationList(data: any, existingOrgs: string[]) {
+        const newOrgsSet = new Set<string>();
+
+        data.items.forEach((item: any) => {
+            const ownerLogin = item.owner.login;
+            if (!existingOrgs.includes(ownerLogin)) {
+                newOrgsSet.add(ownerLogin);
+            }
+        });
+
+        const newOrgs = Array.from(newOrgsSet);
+        return newOrgs;
+    }
+
+    async loadExistingOrganizations(): Promise<string[]> {
         const orgs: string[] = [];
+        const csvFilePath = path.resolve(__dirname, ORGANIZATION_LIST_PATH);
+
         try {
-            const csvFilePath = path.resolve(__dirname, ORGANIZATION_LIST_PATH);
-            await new Promise((resolve, reject) => {
-                createReadStream(csvFilePath)
-                    .pipe(createCsvReader())
-                    .on('data', (row: any) => orgs.push(row.name))
-                    .on('end', resolve)
-                    .on('error', reject);
+            if (!existsSync(csvFilePath)) {
+                // Create an empty file if it doesn't exist
+                await writeFile(csvFilePath, '');
+            }
+
+            const stream = createReadStream(csvFilePath).pipe(createCsvReader({ headers: ['name'] }));
+
+            await new Promise<void>((resolve, reject) => {
+                stream.on('data', (row: any) => {
+                    if (row && row.name) {
+                        orgs.push(row.name);
+                    }
+                });
+
+                stream.on('end', resolve);
+                stream.on('error', reject);
             });
         } catch (error) {
-            console.error('Error loading existing organizations:', error);
+            console.error(`Error loading existing organizations from file ${csvFilePath}:`, error);
         }
+
         return orgs;
     }
 
@@ -145,23 +169,14 @@ export class OrgFinder {
         this.newDf = currentOrganizations.map(item => ({
             name: item.login,
             github: this.prepareReposPage(item.html_url),
-            api: item.url,
-            website: '',
-            review: {
-                score: 0,
-                hiring: false,
-                complexity: 0,
-                issues: 0,
-                atCore: false,
-                hiringProcess: '',
-                large: false
-            },
+            score: 0,
+            hiring: false,
+            complexity: 0,
+            issues: 0,
+            atCore: false,
+            hiringProcess: '',
+            large: false,
             fetchedAt: now,
-        }));
-
-        this.newDf = await Promise.all(this.newDf.map(async item => {
-            item.website = await this.getWebsite(item.api);
-            return item;
         }));
     }
 

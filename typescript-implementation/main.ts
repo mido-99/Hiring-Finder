@@ -3,7 +3,7 @@ import { OrgFinder } from './OrgFinder';
 
 dotenv.config();
 
-const TOPIC = 'typescript';
+const TOPIC = 'nextjs';
 
 (async () => {
     const orgFinder = new OrgFinder();
